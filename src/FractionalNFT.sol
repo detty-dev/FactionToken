@@ -1,63 +1,62 @@
 // SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract FractionalNFT is ERC721, Ownable {
-    IERC20 public paymentToken;
+contract FractionalNFTMarketplace {
 
-    struct FractionalNFT {
-        uint256 tokenId;
-        uint256 totalFractions;
-        uint256 fractionalPrice;
+    ERC721 public nftContract;
+    ERC20 public fractionalNFTToken;
+
+    mapping(uint256 => uint256) public fractionalNFTTokenIds; 
+    mapping(uint256 => PaymentPlan) public paymentPlans;
+
+    struct PaymentPlan {
+        uint256 installments;
+        uint256 installmentAmount;
+        uint256 nextInstallmentDue;
     }
 
-    FractionalNFT[] public fractionalNFTs;
-
-    mapping(uint256 => address[]) public fractionalOwners;
-    mapping(uint256 => mapping(address => uint256)) public fractionalBalances;
-
-    event FractionPurchased(address indexed buyer, uint256 tokenId, uint256 fractions);
-
-    constructor(
-        string memory _name,
-        string memory _symbol,
-        address _paymentToken
-    ) ERC721("DettyToken", "DEV") {
-        paymentToken = IERC20(_paymentToken);
+    constructor(ERC721 _nftContract, ERC20 _fractionalNFTToken) {
+        nftContract = _nftContract;
+        fractionalNFTToken = _fractionalNFTToken;
     }
 
-    function createFractionalNFT(
-        string memory _tokenURI,
-        uint256 _totalFractions,
-        uint256 _fractionalPrice
-    ) external onlyOwner {
-        uint256 tokenId = totalSupply() + 1;
-        _mint(owner(), tokenId);
-        _setTokenURI(tokenId, _tokenURI);
-        fractionalNFTs.push(FractionalNFT(tokenId, _totalFractions, _fractionalPrice));
+   
+    function createFractionalNFTToken(uint256 _tokenId) public {
+        require(nftContract.ownerOf(_tokenId) == msg.sender, "Only the owner of the NFT can create a fractional NFT token");
+       uint256 fractionalNFTTokenId = fractionalNFTToken.totalSupply() + 1;
+
+        fractionalNFTToken.mint(msg.sender, fractionalNFTTokenId);
+
+       fractionalNFTTokenIds[_tokenId] = fractionalNFTTokenId;
     }
 
-    function purchaseFractions(uint256 _nftIndex, uint256 _fractionsToBuy) external {
-        FractionalNFT storage fractionalNFT = fractionalNFTs[_nftIndex];
-        require(fractionalNFT.totalFractions >= _fractionsToBuy, "Not enough fractions available");
+    function createPaymentPlan(uint256 _fractionalNFTTokenId, uint256 _installments, uint256 _installmentAmount) public {
+        require(fractionalNFTToken.balanceOf(msg.sender) >= _fractionalNFTTokenId, "Only the owner of the fractional NFT token can create a payment plan");
 
-        uint256 cost = _fractionsToBuy * fractionalNFT.fractionalPrice;
-        require(paymentToken.transferFrom(msg.sender, owner(), cost), "Payment failed");
+        PaymentPlan memory paymentPlan = PaymentPlan({
+            installments: _installments,
+            installmentAmount: _installmentAmount,
+            nextInstallmentDue: block.timestamp + 1 week
+        });
 
-        for (uint256 i = 0; i < _fractionsToBuy; i++) {
-            fractionalOwners[_nftIndex].push(msg.sender);
-            fractionalBalances[_nftIndex][msg.sender]++;
-            fractionalNFT.totalFractions--;
-        }
-
-        emit FractionPurchased(msg.sender, fractionalNFT.tokenId, _fractionsToBuy);
+        paymentPlans[_fractionalNFTTokenId] = paymentPlan;
     }
 
-    function fractionalBalanceOf(uint256 _nftIndex, address _owner) external view returns (uint256) {
-        return fractionalBalances[_nftIndex][_owner];
-    }
-}
+    function makePayment(uint256 _fractionalNFTTokenId) public payable {
+        require(paymentPlans[_fractionalNFTTokenId].installments > 0, "The caller does not have a valid payment plan for the given fractional NFT token ID");
+        require(msg.value >= paymentPlans[_fractionalNFTTokenId].installmentAmount, "The payment is not sufficient to cover the next installment");
+        paymentPlans[_fractionalNFTTokenId].nextInstallmentDue += 1 week;
 
+        // Send 0.1% of the payment to the seller and the platform
+        fractionalNFTToken.transferFrom(msg.sender, fractionalNFTToken.ownerOf(_fractionalNFTTokenId), msg.value * 0.1 / 100);
+        fractionalNFTToken.transferFrom(msg.sender, address(this), msg.value * 0.1 / 100);
+
+        // Transfer the remaining amount to the fractional NFT token owner
+        fractionalNFTToken.transferFrom(msg.sender, fractionalNFTToken.ownerOf(_fractionalNFTTokenId), msg.value - msg.value * 0.1 / 100 * 2);
+    }
+
+}  
