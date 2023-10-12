@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -40,7 +40,7 @@ contract FractionalNFTMarketplace {
         PaymentPlan memory paymentPlan = PaymentPlan({
             installments: _installments,
             installmentAmount: _installmentAmount,
-            nextInstallmentDue: block.timestamp + 1 week
+            nextInstallmentDue: block.timestamp + 7 days;
         });
 
         paymentPlans[_fractionalNFTTokenId] = paymentPlan;
@@ -49,7 +49,8 @@ contract FractionalNFTMarketplace {
     function makePayment(uint256 _fractionalNFTTokenId) public payable {
         require(paymentPlans[_fractionalNFTTokenId].installments > 0, "The caller does not have a valid payment plan for the given fractional NFT token ID");
         require(msg.value >= paymentPlans[_fractionalNFTTokenId].installmentAmount, "The payment is not sufficient to cover the next installment");
-        paymentPlans[_fractionalNFTTokenId].nextInstallmentDue += 1 week;
+        paymentPlans[_fractionalNFTTokenId].nextInstallmentDue += 7 days;
+        paymentPlans[_fractionalNFTTokenId].installments -= 1;
 
         // Send 0.1% of the payment to the seller and the platform
         fractionalNFTToken.transferFrom(msg.sender, fractionalNFTToken.ownerOf(_fractionalNFTTokenId), msg.value * 0.1 / 100);
